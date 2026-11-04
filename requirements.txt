@@ -1,6 +1,10 @@
 fastapi
-uvicorn
+uvicorn[standard]
 sqlalchemy
 pydantic
-dotenv
+python-dotenv
 psycopg[binary]
+PyJWT
+bcrypt
+pydantic[email]
+python-multipart
