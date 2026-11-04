@@ -1,1 +1,45 @@
+# ---------- Secrets ----------
 .env
+.env.*
+!.env.example
+
+# ---------- Python ----------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------- React / Node ----------
+node_modules/
+dist/
+build/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------- Local HTTPS certs (mkcert) ----------
+*.pem
+*.key
+*.crt
+
+# ---------- Editors / IDEs ----------
+.vscode/
+.idea/
+.vs/
+*.swp
+
+# ---------- OS ----------
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---------- Logs ----------
+*.log
