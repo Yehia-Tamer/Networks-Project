@@ -49,6 +49,7 @@ def login_user(request, db):
         minutes=int(os.getenv("ACCESS_TOKEN_EXPIRES_MINUTES"))
     )
     access_token = JWTtoken.create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+        # "sub" must be the user_id (as a string): verify_access_token looks the user up by id.
+        data={"sub": str(user.user_id)}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
