@@ -10,6 +10,6 @@ Base.metadata.create_all(bind=engine)
 
 @api.get('/',status_code=200)
 def root():
-    return {"message": "Hello World"}
+    return {"message": "I LOVE YEHIA"}
 
 api.include_router(auth.router)

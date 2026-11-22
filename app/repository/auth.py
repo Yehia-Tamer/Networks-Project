@@ -1,4 +1,4 @@
-from app import JWTtoken, models, schemas, hashing
+from app import JWTtoken, models, hashing
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -6,7 +6,9 @@ from datetime import timedelta
 from starlette import status
 import os
 
-def register_user(request: schemas.UserCreate, db: Session):
+from app.schemas import user
+
+def register_user(request: user.UserCreate, db: Session):
     existing_user = db.query(models.User).filter(
         (models.User.username == request.username) | (models.User.email == request.email)
     ).first()
