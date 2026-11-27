@@ -1,9 +1,8 @@
-import json
 import re
 from datetime import datetime
-from typing import Optional
 
-from pydantic import BaseModel, field_validator, model_validator, ConfigDict, EmailStr
+from pydantic import BaseModel, field_validator, ConfigDict, EmailStr
+
 
 class UserCreate(BaseModel):
     username: str
@@ -24,8 +23,11 @@ class UserCreate(BaseModel):
             raise ValueError("Must contain a special character")
         return value
 
+
 class UserResponse(BaseModel):
-    user_id :int
+    """Public shape of a user (used by /auth/register and every /users route).
+    The password hash is deliberately NOT listed, so FastAPI never sends it."""
+    user_id: int
     username: str
     email: EmailStr
     display_name: str | None = None
@@ -34,6 +36,12 @@ class UserResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class UserLogin(BaseModel):
     username: str
     password: str
+
+
+class UserUpdate(BaseModel):
+    display_name: str | None = None
+    email: EmailStr | None = None

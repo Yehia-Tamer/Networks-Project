@@ -1,0 +1,431 @@
+From 73dcaa7bc7a4abd48856f408c5ca639067821c8f Mon Sep 17 00:00:00 2001
+From: Yehia-Tamer <yahiatamernour@gmail.com>
+Date: Sun, 22 Nov 2026 18:14:33 +0200
+Subject: [PATCH] Day 1 setup: include every router, CORS, contract stubs,
+ .env.example
+
+- main.py: rename the app object to `app` (so `uvicorn app.main:app` works),
+  add CORS for port 5173 on localhost and private LAN addresses, and
+  include every router so nobody else has to edit main.py
+- Stub routers: users, groups, messages, metrics, ws, stream
+- Stub repositories with the contract signatures: user, group, message
+- schemas/__init__.py documenting the schemas package
+- Fix login: JWT "sub" is now the user_id, which verify_access_token expects
+  (it was the username, so every protected endpoint crashed with a 500)
+- .env.example with every key; requirements.txt adds pytest and httpx
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014iaxCX1aD1E7pNDmoY44hF
+---
+ .env.example              | 10 +++++++
+ app/main.py               | 56 ++++++++++++++++++++++++++++++++++-----
+ app/repository/auth.py    |  3 ++-
+ app/repository/group.py   | 45 +++++++++++++++++++++++++++++++
+ app/repository/message.py | 41 ++++++++++++++++++++++++++++
+ app/repository/user.py    | 28 ++++++++++++++++++++
+ app/routers/groups.py     | 17 ++++++++++++
+ app/routers/messages.py   | 14 ++++++++++
+ app/routers/metrics.py    | 11 ++++++++
+ app/routers/stream.py     | 10 +++++++
+ app/routers/users.py      | 12 +++++++++
+ app/routers/ws.py         |  9 +++++++
+ app/schemas/__init__.py   | 14 ++++++++++
+ requirements.txt          | 13 ++++-----
+ 14 files changed, 269 insertions(+), 14 deletions(-)
+ create mode 100644 .env.example
+ create mode 100644 app/repository/group.py
+ create mode 100644 app/repository/message.py
+ create mode 100644 app/repository/user.py
+ create mode 100644 app/routers/groups.py
+ create mode 100644 app/routers/messages.py
+ create mode 100644 app/routers/metrics.py
+ create mode 100644 app/routers/stream.py
+ create mode 100644 app/routers/users.py
+ create mode 100644 app/routers/ws.py
+ create mode 100644 app/schemas/__init__.py
+
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000..9351338
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1,10 @@
++# Copy this file to .env and fill in your own values. Never commit .env.
++
++# PostgreSQL: postgresql+psycopg://<user>:<password>@<host>:<port>/<database>
++# Use the password you set when installing PostgreSQL, and port 5432 or 5433.
++DATABASE_URL=postgresql+psycopg://postgres:your_password@localhost:5432/ChatDB
++
++# Make a new secret with:  python -c "import secrets; print(secrets.token_hex(32))"
++JWT_SECRET=replace_me_with_a_64_character_hex_string
++JWT_ALGORITHM=HS256
++ACCESS_TOKEN_EXPIRES_MINUTES=1440
+diff --git a/app/main.py b/app/main.py
+index 916adff..6f47986 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -1,15 +1,57 @@
+-from fastapi import FastAPI, Depends
++"""
++Entry point of the backend. Creates the FastAPI app, sets up CORS and plugs in every router.
+ 
+-from app.database import Base, engine, get_db
+-import app.models
+-from app.routers import auth
++Run it:
++    on this laptop only : uvicorn app.main:app --reload
++    for the phones      : uvicorn app.main:app --host 0.0.0.0 --port 8000   (no --reload, one worker)
+ 
+-api=FastAPI(title="Real Time Chat API")
++Owner: Yehia. Nobody else needs to edit this file: every router is already included below.
++"""
++from fastapi import FastAPI
++from fastapi.middleware.cors import CORSMiddleware
+ 
++from app import models  # noqa: F401  (importing it registers the 4 tables on Base)
++from app.database import Base, engine
++from app.routers import auth, groups, messages, metrics, stream, users, ws
++
++# Create any missing tables on startup (never changes or drops existing ones).
+ Base.metadata.create_all(bind=engine)
+ 
+-@api.get('/',status_code=200)
++app = FastAPI(title="Real Time Chat API")
++
++# ---------------------------------------------------------------------------
++# CORS
++# The React app is served from port 5173 and calls this API on port 8000. A different port
++# counts as a different "origin", so the phone's browser blocks the calls unless we allow it.
++# The regex allows port 5173 on localhost and on any private Wi-Fi / hotspot address
++# (192.168.x.x, 10.x.x.x, 172.16-31.x.x), so nothing has to change when the laptop's IP changes.
++# (CORS does not apply to WebSockets, so /ws is not affected by this.)
++# ---------------------------------------------------------------------------
++app.add_middleware(
++    CORSMiddleware,
++    allow_origin_regex=(
++        r"http://(localhost|127\.0\.0\.1"
++        r"|192\.168\.\d{1,3}\.\d{1,3}"
++        r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
++        r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}):5173"
++    ),
++    allow_methods=["*"],
++    allow_headers=["*"],  # needed for the Authorization: Bearer header
++)
++
++
++@app.get("/", status_code=200)
+ def root():
+     return {"message": "I LOVE YEHIA"}
+ 
+-api.include_router(auth.router)
+\ No newline at end of file
++
++# ---------------------------------------------------------------------------
++# Routers (one per file in app/routers/). Owners are listed in each file.
++# ---------------------------------------------------------------------------
++app.include_router(auth.router)      # /auth/register, /auth/login
++app.include_router(users.router)     # /users ...             (Eyad)
++app.include_router(groups.router)    # /groups ...            (Gelan)
++app.include_router(messages.router)  # /messages, /sync ...   (Maryam)
++app.include_router(metrics.router)   # /metrics               (Eyad)
++app.include_router(ws.router)        # /ws      protocol 1    (Yehia)
++app.include_router(stream.router)    # /stream  protocol 2    (Yehia)
+diff --git a/app/repository/auth.py b/app/repository/auth.py
+index b289d94..8079ee1 100644
+--- a/app/repository/auth.py
++++ b/app/repository/auth.py
+@@ -49,6 +49,7 @@ def login_user(request, db):
+         minutes=int(os.getenv("ACCESS_TOKEN_EXPIRES_MINUTES"))
+     )
+     access_token = JWTtoken.create_access_token(
+-        data={"sub": user.username}, expires_delta=access_token_expires
++        # "sub" must be the user_id (as a string): verify_access_token looks the user up by id.
++        data={"sub": str(user.user_id)}, expires_delta=access_token_expires
+     )
+     return {"access_token": access_token, "token_type": "bearer"}
+diff --git a/app/repository/group.py b/app/repository/group.py
+new file mode 100644
+index 0000000..dcc5080
+--- /dev/null
++++ b/app/repository/group.py
+@@ -0,0 +1,45 @@
++"""
++Database queries for chats (groups) and their members. No HTTP here.
++
++A direct (1-to-1) chat is a group with is_direct=True and exactly 2 members, so every message
++has one group_id and the same code handles both kinds of chat.
++
++Owner: Gelan. These are STUBS from the Day 1 setup commit: the names and signatures are the team
++contract (see the team guide), so keep them exactly as they are and replace each body.
++is_member and member_ids are needed by /ws, so write them first.
++"""
++from sqlalchemy.orm import Session
++
++from app import models
++
++
++def is_member(db: Session, group_id: int, user_id: int) -> bool:
++    raise NotImplementedError
++
++
++def member_ids(db: Session, group_id: int) -> list[int]:
++    """user_ids of everyone in the group (used to fan a new message out to their sockets)."""
++    raise NotImplementedError
++
++
++def create_group(db: Session, creator_id: int, name: str, description: str | None,
++                 member_ids: list[int]) -> models.Group:
++    """Create a group chat. The creator is always added as a member."""
++    raise NotImplementedError
++
++
++def get_or_create_direct(db: Session, user_a: int, user_b: int) -> models.Group:
++    """Return the existing direct chat between the two users, or create it."""
++    raise NotImplementedError
++
++
++def add_member(db: Session, group_id: int, user_id: int) -> None:
++    raise NotImplementedError
++
++
++def remove_member(db: Session, group_id: int, user_id: int) -> None:
++    raise NotImplementedError
++
++
++def list_user_groups(db: Session, user_id: int) -> list[models.Group]:
++    raise NotImplementedError
+diff --git a/app/repository/message.py b/app/repository/message.py
+new file mode 100644
+index 0000000..d9161cf
+--- /dev/null
++++ b/app/repository/message.py
+@@ -0,0 +1,41 @@
++"""
++Database queries for messages. No HTTP here.
++
++Owner: Maryam. These are STUBS from the Day 1 setup commit: the names and signatures are the team
++contract (see the team guide), so keep them exactly as they are and replace each body.
++create_message and get_after_for_user are needed by /ws, so write them first.
++"""
++from sqlalchemy.orm import Session
++
++from app import models
++
++
++def create_message(db: Session, sender_id: int, group_id: int, client_msg_id: str,
++                   content: str) -> tuple[models.Message, bool]:
++    """Save a message and commit. Idempotent: no duplicates.
++
++    Returns (message, True) if it was newly created, or (existing message, False) if this
++    sender already sent this client_msg_id (the unique key uq_messages_sender_client_msg).
++    """
++    raise NotImplementedError
++
++
++def get_after_for_user(db: Session, user_id: int, after_id: int,
++                       limit: int = 500) -> list[models.Message]:
++    """Messages in ANY of the user's groups with message_id > after_id, oldest first (reconnect sync)."""
++    raise NotImplementedError
++
++
++def get_after(db: Session, group_id: int, after_id: int, limit: int = 50) -> list[models.Message]:
++    """Messages in one group newer than after_id, oldest first."""
++    raise NotImplementedError
++
++
++def get_before(db: Session, group_id: int, before_id: int, limit: int = 50) -> list[models.Message]:
++    """Messages in one group older than before_id (load older on scroll up), returned oldest first."""
++    raise NotImplementedError
++
++
++def mark_read(db: Session, group_id: int, user_id: int, message_id: int) -> None:
++    """Set group_members.last_read_message_id (never move it backwards)."""
++    raise NotImplementedError
+diff --git a/app/repository/user.py b/app/repository/user.py
+new file mode 100644
+index 0000000..c0d184a
+--- /dev/null
++++ b/app/repository/user.py
+@@ -0,0 +1,28 @@
++"""
++Database queries for users. No HTTP here: return None / objects and let the router pick the status code.
++
++Owner: Eyad. These are STUBS from the Day 1 setup commit: the names and signatures are the team
++contract (see the team guide), so keep them exactly as they are and replace each body.
++update_last_seen is needed by /ws, so write it first.
++"""
++from sqlalchemy.orm import Session
++
++from app import models
++
++
++def get_by_id(db: Session, user_id: int) -> models.User | None:
++    raise NotImplementedError
++
++
++def get_by_username(db: Session, username: str) -> models.User | None:
++    raise NotImplementedError
++
++
++def search_users(db: Session, text: str, limit: int = 20) -> list[models.User]:
++    """Users whose username or display_name contains `text` (case-insensitive)."""
++    raise NotImplementedError
++
++
++def update_last_seen(db: Session, user_id: int) -> None:
++    """Set users.last_seen_at to now. Called by /ws when a user's last socket closes."""
++    raise NotImplementedError
+diff --git a/app/routers/groups.py b/app/routers/groups.py
+new file mode 100644
+index 0000000..7b5ca29
+--- /dev/null
++++ b/app/routers/groups.py
+@@ -0,0 +1,17 @@
++"""
++Chat (group) endpoints. All need the Authorization: Bearer header; anything about one group
++returns 403 if the user is not a member (put that check in a require_member dependency,
++Maryam's routes reuse it).
++
++Owner: Gelan. STUB from the Day 1 setup commit: already included in main.py, just add routes here.
++To build (see the team guide's contract table):
++    POST   /groups                       -> GroupOut
++    POST   /groups/direct/{user_id}      -> GroupOut (existing chat if there is one)
++    GET    /groups                       -> list of GroupSummary (last message, unread count)
++    GET    /groups/{id}                  -> GroupOut with members
++    POST   /groups/{id}/members          -> GroupOut
++    DELETE /groups/{id}/members/{user_id} -> 204
++"""
++from fastapi import APIRouter
++
++router = APIRouter(prefix="/groups", tags=["groups"])
+diff --git a/app/routers/messages.py b/app/routers/messages.py
+new file mode 100644
+index 0000000..03f7a49
+--- /dev/null
++++ b/app/routers/messages.py
+@@ -0,0 +1,14 @@
++"""
++Message endpoints: history, sending over HTTP (protocol 2) and reconnect sync.
++All need the Authorization: Bearer header.
++
++Owner: Maryam. STUB from the Day 1 setup commit: already included in main.py, just add routes here.
++No prefix, because the paths start differently. To build (see the team guide's contract table):
++    GET  /groups/{id}/messages?after_id= | ?before_id= &limit=50  -> list of MessageOut
++    POST /messages                -> MessageOut: 201 if new, 200 if it already existed
++    POST /groups/{id}/read        -> 204
++    GET  /sync?after_id=          -> SyncResponse
++"""
++from fastapi import APIRouter
++
++router = APIRouter(tags=["messages"])
+diff --git a/app/routers/metrics.py b/app/routers/metrics.py
+new file mode 100644
+index 0000000..9c6fab8
+--- /dev/null
++++ b/app/routers/metrics.py
+@@ -0,0 +1,11 @@
++"""
++Real-time server metrics for monitoring and debugging.
++
++Owner: Eyad. STUB from the Day 1 setup commit: already included in main.py, just add the route here.
++To build:
++    GET /metrics -> active connections, messages per second, bytes per second, uptime
++                    (read from the ConnectionManager's counters in app/realtime/manager.py)
++"""
++from fastapi import APIRouter
++
++router = APIRouter(tags=["metrics"])
+diff --git a/app/routers/stream.py b/app/routers/stream.py
+new file mode 100644
+index 0000000..fc483d4
+--- /dev/null
++++ b/app/routers/stream.py
+@@ -0,0 +1,10 @@
++"""
++Protocol 2: Server-Sent Events  GET /stream?token=<jwt>
++The phone receives on this stream and sends with POST /messages (routers/messages.py).
++
++Owner: Yehia. STUB from the Day 1 setup commit: already included in main.py.
++Events are formatted with sse_event() from app/schemas/ws.py.
++"""
++from fastapi import APIRouter
++
++router = APIRouter(tags=["realtime"])
+diff --git a/app/routers/users.py b/app/routers/users.py
+new file mode 100644
+index 0000000..2438d99
+--- /dev/null
++++ b/app/routers/users.py
+@@ -0,0 +1,12 @@
++"""
++User endpoints. All need the Authorization: Bearer header.
++
++Owner: Eyad. STUB from the Day 1 setup commit: already included in main.py, just add routes here.
++To build (see the team guide's contract table):
++    GET /users/me        -> UserResponse
++    GET /users?search=   -> list of UserResponse
++    GET /users/{id}      -> UserResponse
++"""
++from fastapi import APIRouter
++
++router = APIRouter(prefix="/users", tags=["users"])
+diff --git a/app/routers/ws.py b/app/routers/ws.py
+new file mode 100644
+index 0000000..6d49787
+--- /dev/null
++++ b/app/routers/ws.py
+@@ -0,0 +1,9 @@
++"""
++Protocol 1: the WebSocket endpoint  ws://<laptop-ip>:8000/ws?token=<jwt>
++
++Owner: Yehia. STUB from the Day 1 setup commit: already included in main.py.
++Frames are defined in app/schemas/ws.py; live sockets are kept in app/realtime/manager.py.
++"""
++from fastapi import APIRouter
++
++router = APIRouter(tags=["realtime"])
+diff --git a/app/schemas/__init__.py b/app/schemas/__init__.py
+new file mode 100644
+index 0000000..8c38ba4
+--- /dev/null
++++ b/app/schemas/__init__.py
+@@ -0,0 +1,14 @@
++"""
++Pydantic schemas: the shapes of data going in and out of the API.
++
++One file per feature, so nobody edits the same file at the same time:
++    user.py     Eyad    UserCreate, UserResponse, UserLogin
++    group.py    Gelan   GroupCreate, GroupOut, GroupSummary, MemberOut   (to be added)
++    message.py  Maryam  MessageCreate, MarkRead, MessageOut, SyncResponse
++    ws.py       Yehia   WebSocket frames (protocol 1) and the SSE helper (protocol 2)
++
++Import a module, then use its classes:
++    from app.schemas import user
++    user.UserCreate(...)
++"""
++from . import message, user, ws  # noqa: F401  (add `group` here once group.py exists)
+diff --git a/requirements.txt b/requirements.txt
+index 4e08dca..3d3c4b3 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1,10 +1,11 @@
+ fastapi
+-uvicorn[standard]
++uvicorn[standard]      # [standard] adds WebSocket support
+ sqlalchemy
+-pydantic
++psycopg[binary]        # PostgreSQL driver
+ python-dotenv
+-psycopg[binary]
+-PyJWT
++pydantic[email]        # [email] adds EmailStr validation
++PyJWT                  # imported as jwt
+ bcrypt
+-pydantic[email]
+-python-multipart
+\ No newline at end of file
++python-multipart       # needed for the form body of /auth/login
++pytest                 # tests
++httpx                  # needed by FastAPI's TestClient
+-- 
+2.43.0
